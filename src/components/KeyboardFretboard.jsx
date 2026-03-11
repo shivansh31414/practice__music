@@ -22,6 +22,7 @@ export function KeyboardFretboard({
   scalePitchClasses,
   root,
   activePitchClass,
+  activePitchClasses = [],
   label,
 }) {
   return (
@@ -36,19 +37,21 @@ export function KeyboardFretboard({
           root={root}
           scalePitchClasses={scalePitchClasses}
           activePitchClass={activePitchClass}
+          activePitchClasses={activePitchClasses}
         />
       ) : (
         <FretboardView
           root={root}
           scalePitchClasses={scalePitchClasses}
           activePitchClass={activePitchClass}
+          activePitchClasses={activePitchClasses}
         />
       )}
     </section>
   )
 }
 
-function KeyboardView({ root, scalePitchClasses, activePitchClass }) {
+function KeyboardView({ root, scalePitchClasses, activePitchClass, activePitchClasses }) {
   const keys = Array.from({ length: 24 }, (_, index) => {
     const pitchClass = index % 12
     const keyDef = KEYBOARD_LAYOUT[pitchClass]
@@ -65,7 +68,7 @@ function KeyboardView({ root, scalePitchClasses, activePitchClass }) {
       {keys.map((key) => {
         const inScale = scalePitchClasses.includes(key.pitchClass)
         const isRoot = key.pitchClass === root
-        const isActive = key.pitchClass === activePitchClass
+        const isActive = key.pitchClass === activePitchClass || activePitchClasses.includes(key.pitchClass)
 
         return (
           <div
@@ -82,7 +85,7 @@ function KeyboardView({ root, scalePitchClasses, activePitchClass }) {
   )
 }
 
-function FretboardView({ root, scalePitchClasses, activePitchClass }) {
+function FretboardView({ root, scalePitchClasses, activePitchClass, activePitchClasses }) {
   const frets = Array.from({ length: 13 }, (_, fret) => fret)
 
   return (
@@ -101,7 +104,8 @@ function FretboardView({ root, scalePitchClasses, activePitchClass }) {
             const pitchClass = toPitchClass(openMidi + fret)
             const inScale = scalePitchClasses.includes(pitchClass)
             const isRoot = pitchClass === root
-            const isActive = pitchClass === activePitchClass
+            const isActive =
+              pitchClass === activePitchClass || activePitchClasses.includes(pitchClass)
 
             return (
               <span

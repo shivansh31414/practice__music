@@ -1,7 +1,9 @@
 export class AudioEngine {
-  constructor({ onTick, onScaleNote } = {}) {
+  constructor({ onTick, onScaleNote, onChord, onStop } = {}) {
     this.onTick = onTick
     this.onScaleNote = onScaleNote
+    this.onChord = onChord
+    this.onStop = onStop
 
     this.audioContext = null
     this.masterGain = null
@@ -9,7 +11,11 @@ export class AudioEngine {
     this.isRunning = false
     this.bpm = 100
     this.timeSignature = '4/4'
+    this.mode = 'scale'
     this.scaleMidiNotes = []
+    this.progressionMidiNotes = []
+    this.beatsPerChord = 2
+    this.loopProgression = true
 
     this.lookaheadMs = 25
     this.scheduleAheadTime = 0.12
@@ -17,20 +23,36 @@ export class AudioEngine {
 
     this.currentBeatInBar = 0
     this.currentScaleStep = 0
+    this.currentChordIndex = 0
+    this.currentChordBeat = 0
 
     this.schedulerId = null
     this.pendingTimeouts = new Set()
   }
 
-  async start({ bpm, timeSignature, scaleMidiNotes }) {
+  async start({
+    bpm,
+    timeSignature,
+    mode = 'scale',
+    scaleMidiNotes = [],
+    progressionMidiNotes = [],
+    beatsPerChord = 2,
+    loopProgression = true,
+  }) {
     this.ensureAudioContext()
 
     this.bpm = bpm
     this.timeSignature = timeSignature
+    this.mode = mode
     this.scaleMidiNotes = scaleMidiNotes
+    this.progressionMidiNotes = progressionMidiNotes
+    this.beatsPerChord = Math.max(1, beatsPerChord)
+    this.loopProgression = loopProgression
 
     this.currentBeatInBar = 0
     this.currentScaleStep = 0
+    this.currentChordIndex = 0
+    this.currentChordBeat = 0
 
     if (this.audioContext.state === 'suspended') {
       await this.audioContext.resume()
@@ -54,10 +76,22 @@ export class AudioEngine {
     this.isRunning = false
   }
 
-  updateConfig({ bpm, timeSignature, scaleMidiNotes }) {
+  updateConfig({
+    bpm,
+    timeSignature,
+    mode = this.mode,
+    scaleMidiNotes = this.scaleMidiNotes,
+    progressionMidiNotes = this.progressionMidiNotes,
+    beatsPerChord = this.beatsPerChord,
+    loopProgression = this.loopProgression,
+  }) {
     this.bpm = bpm
     this.timeSignature = timeSignature
+    this.mode = mode
     this.scaleMidiNotes = scaleMidiNotes
+    this.progressionMidiNotes = progressionMidiNotes
+    this.beatsPerChord = Math.max(1, beatsPerChord)
+    this.loopProgression = loopProgression
   }
 
   dispose() {
@@ -85,7 +119,14 @@ export class AudioEngine {
     }
 
     while (this.nextBeatTime < this.audioContext.currentTime + this.scheduleAheadTime) {
-      this.scheduleBeat(this.nextBeatTime, this.currentBeatInBar, this.currentScaleStep)
+      const shouldContinue = this.scheduleBeat(
+        this.nextBeatTime,
+        this.currentBeatInBar,
+        this.currentScaleStep,
+      )
+      if (!shouldContinue) {
+        return
+      }
 
       const secondsPerBeat = 60 / this.bpm
       this.nextBeatTime += secondsPerBeat
@@ -99,6 +140,12 @@ export class AudioEngine {
     const isAccent = beatInBar === 0
     this.playClick(time, isAccent)
 
+    if (this.mode === 'progression') {
+      const keepRunning = this.scheduleProgressionStep(time)
+      this.queueUiUpdate(time, () => this.onTick?.(beatInBar))
+      return keepRunning
+    }
+
     const midiNote = this.scaleMidiNotes[scaleStep]
     if (typeof midiNote === 'number') {
       this.playScaleTone(time, midiNote)
@@ -106,6 +153,37 @@ export class AudioEngine {
     }
 
     this.queueUiUpdate(time, () => this.onTick?.(beatInBar))
+    return true
+  }
+
+  scheduleProgressionStep(time) {
+    const chord = this.progressionMidiNotes[this.currentChordIndex]
+    if (Array.isArray(chord) && this.currentChordBeat === 0) {
+      this.playChordTone(time, chord)
+      this.queueUiUpdate(time, () => this.onChord?.(chord))
+    }
+
+    this.currentChordBeat += 1
+    if (this.currentChordBeat < this.beatsPerChord) {
+      return true
+    }
+
+    this.currentChordBeat = 0
+
+    const atLastChord = this.currentChordIndex >= this.progressionMidiNotes.length - 1
+    if (!atLastChord) {
+      this.currentChordIndex += 1
+      return true
+    }
+
+    if (this.loopProgression) {
+      this.currentChordIndex = 0
+      return true
+    }
+
+    this.stop()
+    this.queueUiUpdate(time, () => this.onStop?.())
+    return false
   }
 
   playClick(time, isAccent) {
@@ -142,6 +220,28 @@ export class AudioEngine {
 
     oscillator.start(time)
     oscillator.stop(time + 0.34)
+  }
+
+  playChordTone(time, midiNotes) {
+    midiNotes.forEach((midiNote, index) => {
+      const frequency = this.midiToFrequency(midiNote)
+      const oscillator = this.audioContext.createOscillator()
+      const gain = this.audioContext.createGain()
+      const strumOffset = index * 0.008
+
+      oscillator.type = 'sawtooth'
+      oscillator.frequency.setValueAtTime(frequency, time + strumOffset)
+
+      gain.gain.setValueAtTime(0.0001, time + strumOffset)
+      gain.gain.linearRampToValueAtTime(0.09, time + 0.02 + strumOffset)
+      gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.42 + strumOffset)
+
+      oscillator.connect(gain)
+      gain.connect(this.masterGain)
+
+      oscillator.start(time + strumOffset)
+      oscillator.stop(time + 0.48 + strumOffset)
+    })
   }
 
   queueUiUpdate(targetTime, callback) {
