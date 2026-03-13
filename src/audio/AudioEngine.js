@@ -12,6 +12,7 @@ export class AudioEngine {
     this.bpm = 100
     this.timeSignature = '4/4'
     this.mode = 'scale'
+    this.instrumentVoice = 'piano'
     this.scaleMidiNotes = []
     this.progressionMidiNotes = []
     this.beatsPerChord = 2
@@ -34,6 +35,7 @@ export class AudioEngine {
     bpm,
     timeSignature,
     mode = 'scale',
+    instrumentVoice = 'piano',
     scaleMidiNotes = [],
     progressionMidiNotes = [],
     beatsPerChord = 2,
@@ -44,6 +46,7 @@ export class AudioEngine {
     this.bpm = bpm
     this.timeSignature = timeSignature
     this.mode = mode
+    this.instrumentVoice = instrumentVoice
     this.scaleMidiNotes = scaleMidiNotes
     this.progressionMidiNotes = progressionMidiNotes
     this.beatsPerChord = Math.max(1, beatsPerChord)
@@ -80,6 +83,7 @@ export class AudioEngine {
     bpm,
     timeSignature,
     mode = this.mode,
+    instrumentVoice = this.instrumentVoice,
     scaleMidiNotes = this.scaleMidiNotes,
     progressionMidiNotes = this.progressionMidiNotes,
     beatsPerChord = this.beatsPerChord,
@@ -88,6 +92,7 @@ export class AudioEngine {
     this.bpm = bpm
     this.timeSignature = timeSignature
     this.mode = mode
+    this.instrumentVoice = instrumentVoice
     this.scaleMidiNotes = scaleMidiNotes
     this.progressionMidiNotes = progressionMidiNotes
     this.beatsPerChord = Math.max(1, beatsPerChord)
@@ -205,43 +210,115 @@ export class AudioEngine {
 
   playScaleTone(time, midiNote) {
     const frequency = this.midiToFrequency(midiNote)
-    const oscillator = this.audioContext.createOscillator()
-    const gain = this.audioContext.createGain()
-
-    oscillator.type = 'triangle'
-    oscillator.frequency.setValueAtTime(frequency, time)
-
-    gain.gain.setValueAtTime(0.0001, time)
-    gain.gain.linearRampToValueAtTime(0.18, time + 0.02)
-    gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.32)
-
-    oscillator.connect(gain)
-    gain.connect(this.masterGain)
-
-    oscillator.start(time)
-    oscillator.stop(time + 0.34)
+    this.playInstrumentVoice(time, frequency, {
+      velocity: 0.26,
+      duration: 0.4,
+      voice: this.instrumentVoice,
+    })
   }
 
   playChordTone(time, midiNotes) {
     midiNotes.forEach((midiNote, index) => {
       const frequency = this.midiToFrequency(midiNote)
-      const oscillator = this.audioContext.createOscillator()
-      const gain = this.audioContext.createGain()
       const strumOffset = index * 0.008
+      this.playInstrumentVoice(time + strumOffset, frequency, {
+        velocity: 0.14,
+        duration: 0.55,
+        voice: this.instrumentVoice,
+      })
+    })
+  }
 
-      oscillator.type = 'sawtooth'
-      oscillator.frequency.setValueAtTime(frequency, time + strumOffset)
+  playInstrumentVoice(time, frequency, { velocity, duration, voice }) {
+    if (voice === 'guitar') {
+      this.playGuitarVoice(time, frequency, velocity, duration)
+      return
+    }
 
-      gain.gain.setValueAtTime(0.0001, time + strumOffset)
-      gain.gain.linearRampToValueAtTime(0.09, time + 0.02 + strumOffset)
-      gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.42 + strumOffset)
+    this.playPianoVoice(time, frequency, velocity, duration)
+  }
 
-      oscillator.connect(gain)
+  playPianoVoice(time, frequency, velocity, duration) {
+    const harmonics = [
+      { ratio: 1, gain: 1 },
+      { ratio: 2, gain: 0.44 },
+      { ratio: 3, gain: 0.2 },
+      { ratio: 4, gain: 0.1 },
+    ]
+
+    harmonics.forEach((harmonic, idx) => {
+      const oscillator = this.audioContext.createOscillator()
+      const filter = this.audioContext.createBiquadFilter()
+      const gain = this.audioContext.createGain()
+
+      oscillator.type = idx % 2 === 0 ? 'triangle' : 'sine'
+      oscillator.frequency.setValueAtTime(frequency * harmonic.ratio, time)
+      oscillator.detune.setValueAtTime((Math.random() - 0.5) * 4, time)
+
+      filter.type = 'lowpass'
+      filter.frequency.setValueAtTime(4200, time)
+      filter.Q.value = 0.7
+
+      gain.gain.setValueAtTime(0.0001, time)
+      gain.gain.linearRampToValueAtTime(velocity * harmonic.gain, time + 0.012)
+      gain.gain.exponentialRampToValueAtTime(0.0001, time + duration + idx * 0.03)
+
+      oscillator.connect(filter)
+      filter.connect(gain)
       gain.connect(this.masterGain)
 
-      oscillator.start(time + strumOffset)
-      oscillator.stop(time + 0.48 + strumOffset)
+      oscillator.start(time)
+      oscillator.stop(time + duration + 0.15)
     })
+  }
+
+  playGuitarVoice(time, frequency, velocity, duration) {
+    const bodyFilter = this.audioContext.createBiquadFilter()
+    bodyFilter.type = 'bandpass'
+    bodyFilter.frequency.setValueAtTime(2800, time)
+    bodyFilter.Q.setValueAtTime(0.6, time)
+
+    const pluckEnvelope = this.audioContext.createGain()
+    pluckEnvelope.gain.setValueAtTime(0.0001, time)
+    pluckEnvelope.gain.linearRampToValueAtTime(velocity * 1.2, time + 0.004)
+    pluckEnvelope.gain.exponentialRampToValueAtTime(0.0001, time + 0.06)
+
+    const noiseBuffer = this.audioContext.createBuffer(1, this.audioContext.sampleRate * 0.08, this.audioContext.sampleRate)
+    const data = noiseBuffer.getChannelData(0)
+    for (let i = 0; i < data.length; i += 1) {
+      data[i] = (Math.random() * 2 - 1) * 0.45
+    }
+
+    const noise = this.audioContext.createBufferSource()
+    noise.buffer = noiseBuffer
+
+    const fundamental = this.audioContext.createOscillator()
+    const overtone = this.audioContext.createOscillator()
+    const sustainGain = this.audioContext.createGain()
+
+    fundamental.type = 'triangle'
+    fundamental.frequency.setValueAtTime(frequency, time)
+    overtone.type = 'sine'
+    overtone.frequency.setValueAtTime(frequency * 2, time)
+
+    sustainGain.gain.setValueAtTime(0.0001, time)
+    sustainGain.gain.linearRampToValueAtTime(velocity * 0.28, time + 0.01)
+    sustainGain.gain.exponentialRampToValueAtTime(0.0001, time + duration)
+
+    noise.connect(bodyFilter)
+    bodyFilter.connect(pluckEnvelope)
+    pluckEnvelope.connect(this.masterGain)
+
+    fundamental.connect(sustainGain)
+    overtone.connect(sustainGain)
+    sustainGain.connect(this.masterGain)
+
+    noise.start(time)
+    noise.stop(time + 0.08)
+    fundamental.start(time)
+    overtone.start(time)
+    fundamental.stop(time + duration + 0.04)
+    overtone.stop(time + duration + 0.04)
   }
 
   queueUiUpdate(targetTime, callback) {
