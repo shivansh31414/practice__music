@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { NOTE_NAMES, toPitchClass } from '../data/scales'
-import { CHORD_LIBRARY, toChordLabel } from '../data/chords'
+import { CHORD_LIBRARY, getChordFormula, toChordLabel } from '../data/chords'
 import { useProgression } from '../context/progressionContext'
 
 type BuilderProps = {
@@ -20,6 +20,7 @@ export function ChordProgressionBuilder({ isPlaying, onPlayToggle }: BuilderProp
     isLooping,
     beatsPerChord,
     savedProgressions,
+    libraryPresets,
     addChord,
     removeChord,
     moveChord,
@@ -30,6 +31,7 @@ export function ChordProgressionBuilder({ isPlaying, onPlayToggle }: BuilderProp
     setIsLooping,
     setBeatsPerChord,
     generateRandom,
+    loadLibraryPreset,
   } = useProgression()
 
   const canPlay = progression.length > 0
@@ -37,6 +39,11 @@ export function ChordProgressionBuilder({ isPlaying, onPlayToggle }: BuilderProp
   const displayChords = useMemo(
     () => progression.map((item) => ({ ...item, label: toChordLabel(item.root + transpose, item.typeId) })),
     [progression, transpose],
+  )
+
+  const selectedFormula = useMemo(
+    () => getChordFormula(selectedRoot + transpose, selectedTypeId),
+    [selectedRoot, selectedTypeId, transpose],
   )
 
   return (
@@ -67,7 +74,7 @@ export function ChordProgressionBuilder({ isPlaying, onPlayToggle }: BuilderProp
             aria-label="Chord type"
           >
             {CHORD_LIBRARY.map((chord) => (
-              <option key={chord.id} value={chord.id}>
+              <option key={chord.id} value={chord.id} title={chord.description}>
                 {chord.name}
               </option>
             ))}
@@ -81,6 +88,25 @@ export function ChordProgressionBuilder({ isPlaying, onPlayToggle }: BuilderProp
         <button className="btn-ghost" onClick={() => generateRandom(4)}>
           Random 4-Chord
         </button>
+
+        <label>
+          Preset Library
+          <select defaultValue="" onChange={(event) => loadLibraryPreset(event.target.value)}>
+            <option value="" disabled>
+              Load style preset
+            </option>
+            {libraryPresets.map((preset) => (
+              <option key={preset.id} value={preset.id}>
+                {preset.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <div className="formula-box" title="Chord tones and interval formula">
+        <strong>{selectedFormula.text}</strong>
+        <span>Intervals: {selectedFormula.labels.join(' - ')}</span>
       </div>
 
       <div className="timeline">
