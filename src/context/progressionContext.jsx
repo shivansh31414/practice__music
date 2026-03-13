@@ -1,6 +1,8 @@
+/* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useMemo, useState } from 'react'
 import {
   DEFAULT_PROGRESSION,
+  PROGRESSION_PRESETS,
   buildChordMidiNotes,
   getChordById,
   randomProgression,
@@ -105,6 +107,20 @@ export function ProgressionProvider({ children }) {
     setProgression(randomProgression(length))
   }
 
+  const loadLibraryPreset = (presetId) => {
+    const preset = PROGRESSION_PRESETS.find((item) => item.id === presetId)
+    if (!preset) {
+      return
+    }
+
+    setProgression(
+      preset.progression.map((item, index) => ({
+        ...item,
+        id: `lib-${preset.id}-${index}-${Date.now()}`,
+      })),
+    )
+  }
+
   const value = {
     progression,
     progressionMidiNotes,
@@ -113,6 +129,7 @@ export function ProgressionProvider({ children }) {
     isLooping,
     beatsPerChord,
     savedProgressions,
+    libraryPresets: PROGRESSION_PRESETS,
     addChord,
     removeChord,
     moveChord,
@@ -123,6 +140,7 @@ export function ProgressionProvider({ children }) {
     setIsLooping,
     setBeatsPerChord,
     generateRandom,
+    loadLibraryPreset,
     getChordById,
   }
 
